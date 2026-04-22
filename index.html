@@ -464,7 +464,10 @@
         // remove trailing comma on last entry
         const last = lines[lines.length - 1];
         lines[lines.length - 1] = last.replace(/,$/, '');
-        lines.push('}');
+        // Closing brace MUST end with semicolon — otherwise the following
+        // IIFE "(function..." is parsed as an attempt to call the object
+        // literal, causing "... is not a function" when pasted as a whole.
+        lines.push('};');
         const code = lines.join('\n') + '\n' + AUTO_ANSWER_JS;
 
         output.value = code;
