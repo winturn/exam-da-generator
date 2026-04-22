@@ -326,23 +326,32 @@
     return uniq.join(',');
   }
 
-  // Find column index by header matching.
-  // Priority: exact match > prefix match > substring match.
-  // This avoids picking "题目id" / "题目标签" when searching for "题目".
-  function findCol(headers, candidates) {
-    const norm = headers.map(h => String(h || '').replace(/\*/g, '').trim());
-    // 1. exact
+  // Normalize header cell: strip required-field markers, trim whitespace.
+  const normHeader = h => String(h || '').replace(/\*/g, '').trim();
+
+  // Strict column lookup: only exact match on normalized header.
+  // Used for header-row detection so we don't false-match on prose/instruction cells.
+  function findColExact(headers, candidates) {
+    const norm = headers.map(normHeader);
     for (const c of candidates) {
       const idx = norm.indexOf(c);
       if (idx >= 0) return idx;
     }
-    // 2. prefix
+    return -1;
+  }
+
+  // Flexible column lookup: exact > prefix > substring.
+  // Used for column assignment AFTER the header row has been confirmed,
+  // to tolerate minor header-name variations like "题目内容" / "答题".
+  function findCol(headers, candidates) {
+    const exact = findColExact(headers, candidates);
+    if (exact >= 0) return exact;
+    const norm = headers.map(normHeader);
     for (const c of candidates) {
       for (let i = 0; i < norm.length; i++) {
         if (norm[i] && norm[i].startsWith(c) && norm[i] !== c) return i;
       }
     }
-    // 3. substring
     for (const c of candidates) {
       for (let i = 0; i < norm.length; i++) {
         if (norm[i] && norm[i].includes(c)) return i;
@@ -351,14 +360,16 @@
     return -1;
   }
 
-  // Locate header row: scan first 10 rows, pick the one containing both
-  // a "题干/题目" column and "答案" column.
+  // Locate header row: scan the first 20 rows and pick the one whose cells
+  // EXACTLY match both a 题干/题目 header and a 答案 header. Using exact
+  // match here (not substring) avoids false-positives on preamble rows that
+  // happen to contain instructional prose like "判断题的答案用 A/B 表示".
   function locateHeader(rows) {
-    const scan = Math.min(rows.length, 10);
+    const scan = Math.min(rows.length, 20);
     for (let i = 0; i < scan; i++) {
       const r = rows[i] || [];
-      const qi = findCol(r, ['题干', '题目', '试题', '内容']);
-      const ai = findCol(r, ['答案', '正确答案', '参考答案']);
+      const qi = findColExact(r, ['题干', '题目', '试题', '题目内容', '试题内容']);
+      const ai = findColExact(r, ['答案', '正确答案', '参考答案', '标准答案']);
       if (qi >= 0 && ai >= 0) return { headerRowIdx: i, headers: r };
     }
     return null;
