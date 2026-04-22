@@ -1,0 +1,564 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>题库转 da 代码生成器</title>
+<script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+<style>
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei", sans-serif;
+    background: #f5f6f8;
+    color: #1f2330;
+    line-height: 1.6;
+  }
+  .container {
+    max-width: 880px;
+    margin: 0 auto;
+    padding: 32px 20px 60px;
+  }
+  h1 { font-size: 22px; margin: 0 0 6px; }
+  .subtitle { color: #6b7180; margin: 0 0 24px; font-size: 14px; }
+  .card {
+    background: #fff;
+    border-radius: 10px;
+    padding: 22px;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.06);
+    margin-bottom: 18px;
+  }
+  .drop-zone {
+    display: block;
+    border: 2px dashed #c8cdd7;
+    border-radius: 10px;
+    padding: 44px 20px;
+    text-align: center;
+    cursor: pointer;
+    transition: border-color .15s, background .15s;
+    background: #fafbfc;
+  }
+  .drop-zone:hover, .drop-zone.drag { border-color: #3b82f6; background: #eff6ff; }
+  .drop-zone input[type="file"] { display: none; }
+  .drop-zone-icon {
+    width: 40px;
+    height: 40px;
+    margin: 0 auto 10px;
+    color: #9ca3af;
+  }
+  .drop-zone:hover .drop-zone-icon, .drop-zone.drag .drop-zone-icon { color: #3b82f6; }
+  .drop-zone-title { font-size: 15px; color: #1f2937; }
+  .drop-zone-hint { color: #6b7180; font-size: 13px; margin-top: 6px; }
+  .file-info {
+    display: none;
+    font-size: 13px;
+    color: #065f46;
+    background: #ecfdf5;
+    border: 1px solid #a7f3d0;
+    border-radius: 6px;
+    padding: 8px 12px;
+    margin-top: 12px;
+  }
+  .file-info.show { display: block; }
+  .stats {
+    display: flex;
+    gap: 14px;
+    flex-wrap: wrap;
+    margin: 14px 0 4px;
+  }
+  .stat {
+    background: #f3f4f7;
+    border-radius: 6px;
+    padding: 8px 12px;
+    font-size: 13px;
+  }
+  .stat b { color: #111827; }
+  .actions {
+    display: flex;
+    gap: 10px;
+    flex-wrap: wrap;
+    margin-bottom: 12px;
+  }
+  button {
+    background: #2563eb;
+    color: #fff;
+    border: 0;
+    border-radius: 6px;
+    padding: 9px 16px;
+    font-size: 14px;
+    cursor: pointer;
+    transition: background .15s;
+  }
+  button:hover { background: #1d4ed8; }
+  button.ghost {
+    background: #fff;
+    color: #2563eb;
+    border: 1px solid #2563eb;
+  }
+  button.ghost:hover { background: #eff6ff; }
+  button:disabled {
+    background: #d1d5db;
+    color: #fff;
+    cursor: not-allowed;
+  }
+  textarea {
+    width: 100%;
+    height: 360px;
+    padding: 12px;
+    border: 1px solid #d1d5db;
+    border-radius: 6px;
+    font-family: "SF Mono", Menlo, Consolas, monospace;
+    font-size: 12.5px;
+    line-height: 1.5;
+    resize: vertical;
+    background: #fafbfc;
+  }
+  .warn {
+    background: #fff7ed;
+    border: 1px solid #fed7aa;
+    color: #9a3412;
+    padding: 10px 14px;
+    border-radius: 6px;
+    font-size: 13px;
+    margin-top: 12px;
+    white-space: pre-wrap;
+  }
+  .error {
+    background: #fef2f2;
+    border: 1px solid #fecaca;
+    color: #991b1b;
+    padding: 10px 14px;
+    border-radius: 6px;
+    font-size: 13px;
+    margin-top: 12px;
+  }
+  .success-toast {
+    position: fixed;
+    top: 20px;
+    left: 50%;
+    transform: translateX(-50%);
+    background: #059669;
+    color: #fff;
+    padding: 10px 20px;
+    border-radius: 6px;
+    font-size: 14px;
+    opacity: 0;
+    transition: opacity .2s;
+    pointer-events: none;
+    z-index: 100;
+  }
+  .success-toast.show { opacity: 1; }
+  details { margin-top: 14px; font-size: 13px; color: #4b5563; }
+  summary { cursor: pointer; user-select: none; }
+  details ol { margin: 8px 0 0; padding-left: 22px; }
+  details li { margin: 3px 0; }
+</style>
+</head>
+<body>
+<div class="container">
+  <h1>题库 → da 代码 生成器</h1>
+  <p class="subtitle">上传 Excel 题库，一键生成可直接粘贴到浏览器控制台的自动答题脚本。</p>
+
+  <div class="card">
+    <label class="drop-zone" id="dropZone">
+      <input type="file" id="fileInput" accept=".xlsx,.xls">
+      <svg class="drop-zone-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+        <polyline points="17 8 12 3 7 8"></polyline>
+        <line x1="12" y1="3" x2="12" y2="15"></line>
+      </svg>
+      <div class="drop-zone-title">点击选择题库文件，或将文件拖到这里</div>
+      <div class="drop-zone-hint">支持 .xlsx / .xls，仅在本地浏览器处理，不会上传</div>
+    </label>
+    <div class="file-info" id="fileInfo"></div>
+    <div id="stats" class="stats" style="display:none;"></div>
+    <div id="warnBox"></div>
+    <div id="errorBox"></div>
+  </div>
+
+  <div class="card" id="outputCard" style="display:none;">
+    <div class="actions">
+      <button id="copyBtn">一键复制</button>
+      <button id="saveBtn" class="ghost">保存为 txt</button>
+      <button id="clearBtn" class="ghost">清空重来</button>
+    </div>
+    <textarea id="output" readonly></textarea>
+    <details>
+      <summary>使用说明</summary>
+      <ol>
+        <li>打开考试/练习页面。</li>
+        <li>按 F12 打开浏览器开发者工具，切到"控制台 / Console"标签。</li>
+        <li>点击上方"一键复制"，然后在控制台粘贴回车。</li>
+        <li>脚本会自动匹配题干并选择答案。</li>
+      </ol>
+    </details>
+  </div>
+</div>
+
+<div class="success-toast" id="toast"></div>
+
+<script>
+(() => {
+  // 自动答题逻辑，与 da 字典拼接后即可在控制台直接执行。
+  const AUTO_ANSWER_JS = `
+// 自动答题
+(function () {
+    const LETTER_INDEX = { A: 0, B: 1, C: 2, D: 3, E: 4, F: 5, G: 6 };
+
+    // 去除所有空白字符（包括普通空格、NBSP、全角空格、制表符、换行等），
+    // 使题库文本与页面文本之间的空白差异不影响匹配。
+    const stripWhitespace = (s) => String(s == null ? '' : s).replace(/\\s+/g, '');
+
+    // 预计算：以"去空白后的题干"为键建立索引，匹配时 O(1) 命中。
+    const daIndex = Object.create(null);
+    for (const key of Object.keys(da)) {
+        daIndex[stripWhitespace(key)] = da[key];
+    }
+
+    // 页面类型：练习页含 .exercise-explain，考试页则没有。
+    const isExam = $(".exercise-explain").length === 0;
+
+    const extractQuestion = (panel) => isExam
+        ? panel.find(".question-stem").text().split("\\n")[3]
+        : panel.find(".name").text().split("\\n")[2].substr(48);
+
+    let matched = 0, missed = 0, failed = 0;
+
+    $(".question-panel-middle").each(function () {
+        const panel = $(this);
+        let question;
+        try {
+            question = extractQuestion(panel);
+            const answer = daIndex[stripWhitespace(question)];
+            if (answer === undefined) {
+                missed++;
+                console.warn("[未命中题库]", question);
+                return;
+            }
+            const inputs = panel.find("input");
+            for (const letter of answer.replace(/[^A-G]/g, "")) {
+                const idx = LETTER_INDEX[letter];
+                if (inputs[idx]) inputs[idx].checked = true;
+            }
+            matched++;
+        } catch (err) {
+            failed++;
+            console.error("[处理出错]", question, err);
+        }
+    });
+
+    console.log(\`自动答题完成：命中 \${matched} 题，未命中 \${missed} 题，异常 \${failed} 题。\`);
+})();
+`;
+
+  const $ = id => document.getElementById(id);
+  const dropZone = $('dropZone');
+  const fileInput = $('fileInput');
+  const fileInfo = $('fileInfo');
+  const statsEl = $('stats');
+  const outputCard = $('outputCard');
+  const output = $('output');
+  const warnBox = $('warnBox');
+  const errorBox = $('errorBox');
+
+  // --- Helpers ---
+  function showToast(msg, ok = true) {
+    const t = $('toast');
+    t.textContent = msg;
+    t.style.background = ok ? '#059669' : '#dc2626';
+    t.classList.add('show');
+    setTimeout(() => t.classList.remove('show'), 1600);
+  }
+
+  function clearMessages() {
+    warnBox.innerHTML = '';
+    errorBox.innerHTML = '';
+  }
+
+  function showWarn(msg) {
+    const div = document.createElement('div');
+    div.className = 'warn';
+    div.textContent = msg;
+    warnBox.appendChild(div);
+  }
+
+  function showError(msg) {
+    errorBox.innerHTML = `<div class="error">${msg}</div>`;
+  }
+
+  // Normalize question text to match exam webpage:
+  //  - NBSP -> regular space
+  //  - remove CR/LF (cell-internal newlines cause mismatch)
+  //  - trim leading/trailing whitespace
+  //  - DO NOT collapse internal spaces (spacing inside brackets is significant)
+  function normalizeQuestion(s) {
+    if (s == null) return '';
+    return String(s)
+      .replace(/ /g, ' ')
+      .replace(/[\r\n]+/g, '')
+      .replace(/^\s+|\s+$/g, '');
+  }
+
+  // Normalize answer based on question type.
+  function normalizeAnswer(type, raw) {
+    if (raw == null) return '';
+    const t = String(type || '');
+    const s = String(raw).trim();
+
+    if (t.includes('判断')) {
+      const upper = s.toUpperCase();
+      if (upper === 'A' || upper === 'B') return upper;
+      if (/^(正确|对|是|✓|√|T|TRUE|YES|Y)$/i.test(s)) return 'A';
+      if (/^(错误|错|否|不对|✗|×|X|F|FALSE|NO|N)$/i.test(s)) return 'B';
+      // fallback: try first letter
+      const m = upper.match(/[AB]/);
+      return m ? m[0] : upper;
+    }
+
+    // 单选 / 多选: extract A-G letters in order, join with comma.
+    const letters = s.toUpperCase().match(/[A-G]/g) || [];
+    // de-dup while preserving order
+    const seen = new Set();
+    const uniq = [];
+    for (const l of letters) {
+      if (!seen.has(l)) { seen.add(l); uniq.push(l); }
+    }
+    return uniq.join(',');
+  }
+
+  // Find column index by header matching.
+  // Priority: exact match > prefix match > substring match.
+  // This avoids picking "题目id" / "题目标签" when searching for "题目".
+  function findCol(headers, candidates) {
+    const norm = headers.map(h => String(h || '').replace(/\*/g, '').trim());
+    // 1. exact
+    for (const c of candidates) {
+      const idx = norm.indexOf(c);
+      if (idx >= 0) return idx;
+    }
+    // 2. prefix
+    for (const c of candidates) {
+      for (let i = 0; i < norm.length; i++) {
+        if (norm[i] && norm[i].startsWith(c) && norm[i] !== c) return i;
+      }
+    }
+    // 3. substring
+    for (const c of candidates) {
+      for (let i = 0; i < norm.length; i++) {
+        if (norm[i] && norm[i].includes(c)) return i;
+      }
+    }
+    return -1;
+  }
+
+  // Locate header row: scan first 10 rows, pick the one containing both
+  // a "题干/题目" column and "答案" column.
+  function locateHeader(rows) {
+    const scan = Math.min(rows.length, 10);
+    for (let i = 0; i < scan; i++) {
+      const r = rows[i] || [];
+      const qi = findCol(r, ['题干', '题目', '试题', '内容']);
+      const ai = findCol(r, ['答案', '正确答案', '参考答案']);
+      if (qi >= 0 && ai >= 0) return { headerRowIdx: i, headers: r };
+    }
+    return null;
+  }
+
+  function pickSheet(wb) {
+    // Prefer sheets whose rows contain both 题干 and 答案 headers.
+    for (const name of wb.SheetNames) {
+      const ws = wb.Sheets[name];
+      const rows = XLSX.utils.sheet_to_json(ws, { header: 1, defval: null, raw: false });
+      if (locateHeader(rows)) return { name, rows };
+    }
+    // Fallback: first sheet
+    const name = wb.SheetNames[0];
+    const ws = wb.Sheets[name];
+    return { name, rows: XLSX.utils.sheet_to_json(ws, { header: 1, defval: null, raw: false }) };
+  }
+
+  function buildDa(file) {
+    clearMessages();
+    const reader = new FileReader();
+    reader.onload = e => {
+      try {
+        const data = new Uint8Array(e.target.result);
+        const wb = XLSX.read(data, { type: 'array' });
+        const { name: sheetName, rows } = pickSheet(wb);
+
+        const loc = locateHeader(rows);
+        if (!loc) {
+          showError('找不到包含"题干"和"答案"列的表头行，请检查 Excel 文件格式。');
+          return;
+        }
+
+        const { headerRowIdx, headers } = loc;
+        const qIdx = findCol(headers, ['题干', '题目', '试题', '内容']);
+        const aIdx = findCol(headers, ['答案', '正确答案', '参考答案']);
+        const tIdx = findCol(headers, ['题型', '类型']);
+
+        const entries = new Map(); // question -> answer
+        const typeOf = new Map();  // question -> raw 题型 string
+        const dupConflicts = [];
+        const skipped = [];
+
+        for (let i = headerRowIdx + 1; i < rows.length; i++) {
+          const r = rows[i] || [];
+          const qRaw = r[qIdx];
+          const aRaw = r[aIdx];
+          const tRaw = tIdx >= 0 ? r[tIdx] : '';
+
+          const q = normalizeQuestion(qRaw);
+          if (!q) continue; // empty row
+          const a = normalizeAnswer(tRaw, aRaw);
+          if (!a) {
+            skipped.push({ row: i + 1, q, reason: '答案为空或无法识别' });
+            continue;
+          }
+
+          if (entries.has(q)) {
+            const prev = entries.get(q);
+            if (prev !== a) {
+              dupConflicts.push({ q, prev, now: a });
+            }
+          }
+          entries.set(q, a);
+          typeOf.set(q, String(tRaw || '').trim());
+        }
+
+        if (entries.size === 0) {
+          showError('未能从文件中提取到任何题目，请检查 Excel 内容。');
+          return;
+        }
+
+        // Count by 题型 column when available; otherwise fall back to answer shape.
+        const byType = { '单选题': 0, '多选题': 0, '判断题': 0, '其他': 0 };
+        for (const [q, a] of entries) {
+          const t = typeOf.get(q) || '';
+          if (t.includes('单选')) byType['单选题']++;
+          else if (t.includes('多选')) byType['多选题']++;
+          else if (t.includes('判断')) byType['判断题']++;
+          else if (a.includes(',')) byType['多选题']++;
+          else byType['其他']++;
+        }
+
+        // Build output
+        const lines = ['da = {'];
+        for (const [q, a] of entries) {
+          // JSON.stringify handles quote/backslash escaping safely
+          const qStr = JSON.stringify(q);
+          const aStr = JSON.stringify(a);
+          lines.push(`    ${qStr}: ${aStr},`);
+        }
+        // remove trailing comma on last entry
+        const last = lines[lines.length - 1];
+        lines[lines.length - 1] = last.replace(/,$/, '');
+        lines.push('}');
+        const code = lines.join('\n') + '\n' + AUTO_ANSWER_JS;
+
+        output.value = code;
+        outputCard.style.display = '';
+
+        // Stats
+        statsEl.style.display = '';
+        statsEl.innerHTML = `
+          <div class="stat">工作表：<b>${sheetName}</b></div>
+          <div class="stat">总题数：<b>${entries.size}</b></div>
+          <div class="stat">单选题：<b>${byType['单选题']}</b></div>
+          <div class="stat">多选题：<b>${byType['多选题']}</b></div>
+          <div class="stat">判断题：<b>${byType['判断题']}</b></div>
+          ${byType['其他'] ? `<div class="stat">其他：<b>${byType['其他']}</b></div>` : ''}
+          ${skipped.length ? `<div class="stat">跳过：<b>${skipped.length}</b></div>` : ''}
+          ${dupConflicts.length ? `<div class="stat">重复题冲突：<b>${dupConflicts.length}</b></div>` : ''}
+        `;
+
+        if (skipped.length) {
+          const preview = skipped.slice(0, 3).map(s => `  · 第 ${s.row} 行：${s.q.slice(0, 30)}…（${s.reason}）`).join('\n');
+          showWarn(`有 ${skipped.length} 题被跳过（答案为空或无法识别）：\n${preview}${skipped.length > 3 ? `\n  · …（其余 ${skipped.length - 3} 条省略）` : ''}`);
+        }
+        if (dupConflicts.length) {
+          const preview = dupConflicts.slice(0, 3).map(d => `  · ${d.q.slice(0, 30)}… （${d.prev} → ${d.now}）`).join('\n');
+          showWarn(`有 ${dupConflicts.length} 题出现重复但答案不一致，已保留后出现的答案：\n${preview}${dupConflicts.length > 3 ? `\n  · …（其余 ${dupConflicts.length - 3} 条省略）` : ''}`);
+        }
+
+        // Save metadata for download
+        output.dataset.sourceName = file.name.replace(/\.(xlsx|xls)$/i, '');
+      } catch (err) {
+        console.error(err);
+        showError('解析失败：' + (err && err.message ? err.message : String(err)));
+      }
+    };
+    reader.onerror = () => showError('读取文件失败。');
+    reader.readAsArrayBuffer(file);
+  }
+
+  // --- Event wiring ---
+  function handleFile(file) {
+    if (!file) return;
+    if (!/\.(xlsx|xls)$/i.test(file.name)) {
+      showError('请选择 .xlsx 或 .xls 格式的题库文件。');
+      return;
+    }
+    fileInfo.textContent = `✓ 已选择：${file.name}（${(file.size / 1024).toFixed(1)} KB）`;
+    fileInfo.classList.add('show');
+    buildDa(file);
+  }
+
+  fileInput.addEventListener('change', e => handleFile(e.target.files[0]));
+
+  ['dragenter', 'dragover'].forEach(ev => {
+    dropZone.addEventListener(ev, e => {
+      e.preventDefault();
+      dropZone.classList.add('drag');
+    });
+  });
+  ['dragleave', 'drop'].forEach(ev => {
+    dropZone.addEventListener(ev, e => {
+      e.preventDefault();
+      dropZone.classList.remove('drag');
+    });
+  });
+  dropZone.addEventListener('drop', e => {
+    const f = e.dataTransfer.files && e.dataTransfer.files[0];
+    if (f) handleFile(f);
+  });
+
+  $('copyBtn').addEventListener('click', async () => {
+    try {
+      await navigator.clipboard.writeText(output.value);
+      showToast('已复制到剪贴板，去控制台粘贴即可');
+    } catch {
+      // Fallback
+      output.select();
+      document.execCommand('copy');
+      showToast('已复制');
+    }
+  });
+
+  $('saveBtn').addEventListener('click', () => {
+    const base = output.dataset.sourceName || 'da';
+    const blob = new Blob([output.value], { type: 'text/plain;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `${base}_da.txt`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  });
+
+  $('clearBtn').addEventListener('click', () => {
+    fileInput.value = '';
+    fileInfo.textContent = '';
+    fileInfo.classList.remove('show');
+    output.value = '';
+    outputCard.style.display = 'none';
+    statsEl.style.display = 'none';
+    statsEl.innerHTML = '';
+    clearMessages();
+  });
+})();
+</script>
+</body>
+</html>
