@@ -205,16 +205,96 @@
 (function () {
     const LETTER_INDEX = { A: 0, B: 1, C: 2, D: 3, E: 4, F: 5, G: 6 };
 
-    // 去除所有空白字符（包括普通空格、NBSP、全角空格、制表符、换行等），
-    // 使题库文本与页面文本之间的空白差异不影响匹配。
-    const stripWhitespace = (s) => String(s == null ? '' : s).replace(/\\s+/g, '');
+    // 是否启用模糊匹配（容忍网页个别错别字/OCR识别错误，如「入党」被识别成「人党」）。
+    // 若担心误配，可改为 false 关闭。
+    const ENABLE_FUZZY = true;
 
-    // 预计算：以"去空白后的题干"为键建立索引，匹配时 O(1) 命中。
-    const daIndex = Object.create(null);
+    // ==================== 文本规范化 ====================
+    // 全角转半角：把全角的数字/字母/标点统一为半角，全角空格转普通空格。
+    const toHalfWidth = (s) => String(s == null ? '' : s)
+        .replace(/[\\uFF01-\\uFF5E]/g, (ch) => String.fromCharCode(ch.charCodeAt(0) - 0xFEE0))
+        .replace(/\\u3000/g, ' ');
+
+    // 严格键：仅去除所有空白字符。与原逻辑一致，保证精确匹配、零误配风险。
+    const strictKey = (s) => String(s == null ? '' : s).replace(/\\s+/g, '');
+
+    // 宽松键：全角转半角 + 去空白 + 去掉所有标点/符号，只保留中文、字母、数字。
+    // 用于消除「中文标点 vs 英文标点」「全角 vs 半角」的差异。
+    const looseKey = (s) => toHalfWidth(s)
+        .replace(/\\s+/g, '')
+        .replace(/[^0-9A-Za-z\\u3400-\\u4DBF\\u4E00-\\u9FFF\\uF900-\\uFAFF]/g, '');
+
+    // ==================== 建立索引 ====================
+    const strictIndex = Object.create(null); // 严格键 -> 答案
+    const looseIndex = Object.create(null);  // 宽松键 -> 答案（去标点后重复且答案不一致时置 null 表示冲突）
     for (const key of Object.keys(da)) {
-        daIndex[stripWhitespace(key)] = da[key];
-    }
+        const answer = da[key];
+        strictIndex[strictKey(key)] = answer;
 
+        const lk = looseKey(key);
+        if (lk in looseIndex) {
+            if (looseIndex[lk] !== answer) looseIndex[lk] = null; // 冲突：放弃该键的宽松/模糊匹配，避免填错
+        } else {
+            looseIndex[lk] = answer;
+        }
+    }
+    // 用于模糊匹配的候选键（排除冲突键）
+    const looseKeys = Object.keys(looseIndex).filter((k) => looseIndex[k] != null);
+
+    // ==================== 模糊匹配（编辑距离，带上限提前退出） ====================
+    const editDistanceWithin = (a, b, max) => {
+        const la = a.length, lb = b.length;
+        if (Math.abs(la - lb) > max) return max + 1;
+        let prev = new Array(lb + 1);
+        for (let j = 0; j <= lb; j++) prev[j] = j;
+        for (let i = 1; i <= la; i++) {
+            const cur = new Array(lb + 1);
+            cur[0] = i;
+            let rowMin = i;
+            const ca = a.charCodeAt(i - 1);
+            for (let j = 1; j <= lb; j++) {
+                const cost = ca === b.charCodeAt(j - 1) ? 0 : 1;
+                cur[j] = Math.min(prev[j] + 1, cur[j - 1] + 1, prev[j - 1] + cost);
+                if (cur[j] < rowMin) rowMin = cur[j];
+            }
+            if (rowMin > max) return max + 1; // 整行都超限，提前退出
+            prev = cur;
+        }
+        return prev[lb];
+    };
+
+    // 只在严格/宽松都未命中时调用：找最接近的题，要求"差异极小 + 唯一最优"才采用。
+    const fuzzyLookup = (question) => {
+        const q = looseKey(question);
+        if (q.length < 8) return undefined; // 题干太短不做模糊匹配，避免误配
+        // 允许的最大差异字符数：题干越长放得越宽，但设上下限。
+        const maxDist = Math.min(3, Math.max(1, Math.floor(q.length * 0.05)));
+        let best = null, bestDist = maxDist + 1, secondDist = maxDist + 1;
+        for (const k of looseKeys) {
+            if (Math.abs(k.length - q.length) > maxDist) continue;
+            const d = editDistanceWithin(q, k, maxDist);
+            if (d < bestDist) { secondDist = bestDist; bestDist = d; best = k; }
+            else if (d < secondDist) { secondDist = d; }
+        }
+        // 存在足够接近、且明显优于次优的唯一匹配才采用
+        if (best && bestDist <= maxDist && bestDist < secondDist) {
+            console.info(\`[模糊匹配·差异\${bestDist}字]\`, question);
+            return looseIndex[best];
+        }
+        return undefined;
+    };
+
+    // 查找答案：严格 -> 宽松 -> 模糊
+    const lookup = (question) => {
+        const strict = strictIndex[strictKey(question)];
+        if (strict !== undefined) return strict;
+        const loose = looseIndex[looseKey(question)];
+        if (loose != null) return loose;
+        if (ENABLE_FUZZY) return fuzzyLookup(question);
+        return undefined;
+    };
+
+    // ==================== 答题 ====================
     // 页面类型：练习页含 .exercise-explain，考试页则没有。
     const isExam = $(".exercise-explain").length === 0;
 
@@ -229,7 +309,7 @@
         let question;
         try {
             question = extractQuestion(panel);
-            const answer = daIndex[stripWhitespace(question)];
+            const answer = lookup(question);
             if (answer === undefined) {
                 missed++;
                 console.warn("[未命中题库]", question);
