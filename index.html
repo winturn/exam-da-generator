@@ -294,38 +294,130 @@
         return undefined;
     };
 
-    // ==================== 答题 ====================
-    // 页面类型：练习页含 .exercise-explain，考试页则没有。
-    const isExam = $(".exercise-explain").length === 0;
+    // ==================== 页面适配与答题 ====================
+    // 新版页面只需在这里补充实际的 CSS 选择器，不必改动题库匹配逻辑。
+    // 每一组按顺序尝试，第一条能找到元素的选择器会被采用。
+    // 目前保留旧版选择器，并预置常见 Vue/React 题目组件的类名。
+    const PAGE_ADAPTER = {
+        questionPanels: [
+            ".question-panel-middle", // 旧版
+            ".question-panel", ".question-item", ".question-card",
+            ".exam-question", ".exam-question-item", ".quiz-question"
+        ],
+        questionText: [
+            ".name",          // 当前题目页的纯题干节点（优先避免包含题号）
+            ".question-stem", // 旧版考试
+            ".question-title", ".question-content", ".question-name",
+            ".topic-title", ".stem", "[data-question-stem]"
+        ],
+        options: [
+            "input[type=radio]", "input[type=checkbox]",
+            "[role=radio]", "[role=checkbox]"
+        ]
+    };
 
-    const extractQuestion = (panel) => isExam
-        ? panel.find(".question-stem").text().split("\\n")[3]
-        : panel.find(".name").text().split("\\n")[2].substr(48);
+    const firstNonEmpty = (root, selectors) => {
+        for (const selector of selectors) {
+            const nodes = root.querySelectorAll(selector);
+            if (nodes.length) return Array.from(nodes);
+        }
+        return [];
+    };
+
+    // 去掉新版页面常见的题号和题型前缀；题干正文保持原样，后续仍由 strict/loose/fuzzy 匹配处理。
+    const cleanQuestion = (text) => String(text == null ? "" : text)
+        .replace(/^[\\s\\n]*(?:第?\\s*\\d+\\s*题|[（(]\\s*\\d+\\s*[）)]|\\d+\\s*[.、．])[\\s\\n]*/, "")
+        .replace(/^[\\s\\n]*(?:单选题|多选题|判断题)[：:｜|\\s]*/, "")
+        .replace(/[\\s\\n]*[（(]\\s*\\d+(?:\\.\\d+)?\\s*分\\s*[）)][\\s\\n]*$/, "")
+        .trim();
+
+    const extractQuestion = (panel) => {
+        for (const selector of PAGE_ADAPTER.questionText) {
+            const node = panel.querySelector(selector);
+            if (node && cleanQuestion(node.innerText || node.textContent)) {
+                return cleanQuestion(node.innerText || node.textContent);
+            }
+        }
+        return "";
+    };
+
+    // 对原生控件优先调用 click()，让 Vue/React 的 change 监听器与页面状态同步；
+    // 角色控件则点击对应元素。不会提交试卷或点击任何“下一题/交卷”按钮。
+    const markOption = (option) => {
+        // 不能用 instanceof HTMLInputElement：题目在 iframe 时属于另一份 window 原型。
+        if (option.tagName === "INPUT") {
+            if (!option.checked) option.click();
+            return option.checked;
+        }
+        option.click();
+        return option.getAttribute("aria-checked") !== "false";
+    };
+
+    // 题目页通常运行在门户桌面的 iframe 中。控制台默认执行在顶层页面，
+    // 因此递归检查同源 iframe，找到第一个包含题目容器的文档即可。
+    // 跨域 iframe 会受浏览器同源策略保护，安全地跳过。
+    const findQuestionContext = () => {
+        const pending = [document];
+        const visited = new Set();
+        while (pending.length) {
+            const root = pending.shift();
+            if (!root || visited.has(root)) continue;
+            visited.add(root);
+            const panels = firstNonEmpty(root, PAGE_ADAPTER.questionPanels);
+            if (panels.length) return { root, panels };
+            for (const frame of root.querySelectorAll("iframe")) {
+                try {
+                    if (frame.contentDocument) pending.push(frame.contentDocument);
+                } catch (_) {
+                    // 跨域 iframe：无法访问其 DOM，继续检查其他同源框架。
+                }
+            }
+        }
+        return null;
+    };
+
+    const questionContext = findQuestionContext();
+    const panels = questionContext ? questionContext.panels : [];
+    if (!panels.length) {
+        console.error("未找到题目容器（已检查当前页面及同源 iframe）。请确认题目已完全加载，再检查 PAGE_ADAPTER.questionPanels。", PAGE_ADAPTER);
+        return;
+    }
 
     let matched = 0, missed = 0, failed = 0;
-
-    $(".question-panel-middle").each(function () {
-        const panel = $(this);
-        let question;
+    for (const panel of panels) {
+        let question = "";
         try {
             question = extractQuestion(panel);
+            if (!question) {
+                failed++;
+                console.error("[无法提取题干]", panel);
+                continue;
+            }
             const answer = lookup(question);
             if (answer === undefined) {
                 missed++;
                 console.warn("[未命中题库]", question);
-                return;
+                continue;
             }
-            const inputs = panel.find("input");
+            const options = firstNonEmpty(panel, PAGE_ADAPTER.options);
+            if (!options.length) {
+                failed++;
+                console.error("[未找到选项控件]", question, panel);
+                continue;
+            }
+            let selected = 0;
             for (const letter of answer.replace(/[^A-G]/g, "")) {
-                const idx = LETTER_INDEX[letter];
-                if (inputs[idx]) inputs[idx].checked = true;
+                const option = options[LETTER_INDEX[letter]];
+                if (option && markOption(option)) selected++;
+                else console.warn("[选项不存在或无法勾选]", question, letter);
             }
-            matched++;
+            if (selected) matched++;
+            else failed++;
         } catch (err) {
             failed++;
             console.error("[处理出错]", question, err);
         }
-    });
+    }
 
     console.log(\`自动答题完成：命中 \${matched} 题，未命中 \${missed} 题，异常 \${failed} 题。\`);
 })();
