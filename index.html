@@ -19,6 +19,28 @@
     margin: 0 auto;
     padding: 32px 20px 60px;
   }
+  .version-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 7px;
+    margin-bottom: 10px;
+    padding: 5px 10px;
+    border: 1px solid #86efac;
+    border-radius: 999px;
+    background: #f0fdf4;
+    color: #166534;
+    font-size: 12px;
+    font-weight: 600;
+    letter-spacing: .02em;
+  }
+  .version-badge::before {
+    content: "";
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+    background: #22c55e;
+    box-shadow: 0 0 0 3px rgba(34, 197, 94, .14);
+  }
   h1 { font-size: 22px; margin: 0 0 6px; }
   .subtitle { color: #6b7180; margin: 0 0 24px; font-size: 14px; }
   .card {
@@ -156,6 +178,7 @@
 </head>
 <body>
 <div class="container">
+  <div class="version-badge" title="已支持从门户页自动进入同源 iframe 查找题目">新版 · iframe 兼容版 · 2026.09.21</div>
   <h1>题库 → da 代码 生成器</h1>
   <p class="subtitle">上传 Excel 题库，一键生成可直接粘贴到浏览器控制台的自动答题脚本。</p>
 
